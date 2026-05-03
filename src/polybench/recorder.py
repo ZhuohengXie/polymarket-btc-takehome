@@ -10,10 +10,14 @@ Schema (one row per tick):
     btc_ask              float64
     btc_source           string    source for BTC fields; e.g. binance
     up_bid               float64   Polymarket UP token best bid
+    up_bid_size          float64   Polymarket UP token best bid shares
     up_ask               float64
+    up_ask_size          float64   Polymarket UP token best ask shares
     up_mid               float64
     down_bid             float64
+    down_bid_size        float64
     down_ask             float64
+    down_ask_size        float64
     down_mid             float64
     signal_side          string    "UP" | "DOWN" | "FLAT" | "NONE" queued for next tick
     signal_size          float64
@@ -55,10 +59,14 @@ class TickRow:
     btc_ask: float = 0.0
     btc_source: str = "polymarket"
     up_bid: float = 0.0
+    up_bid_size: float = math.inf
     up_ask: float = 0.0
+    up_ask_size: float = math.inf
     up_mid: float = 0.0
     down_bid: float = 0.0
+    down_bid_size: float = math.inf
     down_ask: float = 0.0
+    down_ask_size: float = math.inf
     down_mid: float = 0.0
     signal_side: str = "NONE"
     signal_size: float = 0.0
@@ -158,4 +166,6 @@ def _default_for(column: str) -> Any:
         return 0
     if column in {"resolution_up", "resolution_down"}:
         return math.nan
+    if column in {"up_bid_size", "up_ask_size", "down_bid_size", "down_ask_size"}:
+        return math.inf
     return 0.0

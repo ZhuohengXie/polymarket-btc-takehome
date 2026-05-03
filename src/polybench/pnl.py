@@ -36,12 +36,16 @@ class BookTop:
     best_bid: float
     best_ask: float
     mid: float
+    best_bid_size: float = math.inf
+    best_ask_size: float = math.inf
 
     @property
     def is_well_formed(self) -> bool:
         return (
             self.best_bid > 0.0
             and self.best_ask > 0.0
+            and self.best_bid_size > 0.0
+            and self.best_ask_size > 0.0
             and self.best_ask >= self.best_bid
             and (self.best_ask - self.best_bid) < 0.5    # sanity: max 50-cent spread on a [0,1] market
         )
@@ -58,11 +62,11 @@ class BookTop:
 
     @property
     def is_bid_tradable(self) -> bool:
-        return self.best_bid > 0.0 and self._spread_is_sane
+        return self.best_bid > 0.0 and self.best_bid_size > 0.0 and self._spread_is_sane
 
     @property
     def is_ask_tradable(self) -> bool:
-        return self.best_ask > 0.0 and self._spread_is_sane
+        return self.best_ask > 0.0 and self.best_ask_size > 0.0 and self._spread_is_sane
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,11 +360,21 @@ class PaperSimulator:
     ) -> tuple[float, float]:
         size = max(0.0, min(1.0, float(signal.size)))
         notional = size * self._starting_capital
-        if signal.side == Side.UP and size > 0.0 and up_book.is_ask_tradable:
+        if (
+            signal.side == Side.UP
+            and size > 0.0
+            and up_book.best_ask > 0.0
+            and up_book._spread_is_sane
+        ):
             return (notional / up_book.best_ask, 0.0)
-        if signal.side == Side.DOWN and size > 0.0 and down_book.is_ask_tradable:
+        if (
+            signal.side == Side.DOWN
+            and size > 0.0
+            and down_book.best_ask > 0.0
+            and down_book._spread_is_sane
+        ):
             return (0.0, notional / down_book.best_ask)
-        # FLAT or untradable target side → go to zero on both sides.
+        # FLAT or no sane target price -> go to zero on both sides.
         return (0.0, 0.0)
 
     def _reconcile(
@@ -401,10 +415,16 @@ class PaperSimulator:
         if delta > 0.0:
             if not book.is_ask_tradable:
                 return None
+            delta = min(delta, book.best_ask_size)
+            if abs(delta) < 1e-9:
+                return None
             fill_price = book.best_ask * (1.0 + self._slippage)
             notional = delta * fill_price                 # cash out
         else:
             if not book.is_bid_tradable:
+                return None
+            delta = -min(abs(delta), book.best_bid_size)
+            if abs(delta) < 1e-9:
                 return None
             fill_price = book.best_bid * (1.0 - self._slippage)
             notional = delta * fill_price                 # cash in (negative notional)

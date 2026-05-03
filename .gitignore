@@ -28,3 +28,4 @@ run_*.json
 
 # --- Local candidate scratch dirs ---
 .polybench_scratch/
+model_submissions/

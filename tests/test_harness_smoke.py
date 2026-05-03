@@ -97,11 +97,13 @@ def _event() -> EventDescriptor:
     )
 
 
-def _book_obj(token_id: str, bid: float, ask: float, ts: float = 0.0) -> Book:
+def _book_obj(
+    token_id: str, bid: float, ask: float, ts: float = 0.0, size: float = 10_000.0
+) -> Book:
     return Book(
         token_id=token_id,
-        bids=(Level(price=bid, size=100.0),),
-        asks=(Level(price=ask, size=100.0),),
+        bids=(Level(price=bid, size=size),),
+        asks=(Level(price=ask, size=size),),
         best_bid=bid,
         best_ask=ask,
         last_trade=(bid + ask) / 2.0,
@@ -301,6 +303,8 @@ def test_clob_websocket_payload_updates_real_book_cache(tmp_path: Path) -> None:
                     "asset_id": "DOWN",
                     "best_bid": "0.47",
                     "best_ask": "0.53",
+                    "best_bid_size": "9",
+                    "best_ask_size": "11",
                     "timestamp": "1766789469959",
                 }
             ),
@@ -309,9 +313,13 @@ def test_clob_websocket_payload_updates_real_book_cache(tmp_path: Path) -> None:
         assert harness._cached_up_book is not None
         assert harness._cached_up_book.best_bid == pytest.approx(0.48)
         assert harness._cached_up_book.best_ask == pytest.approx(0.52)
+        assert harness._cached_up_book.bids[0].size == pytest.approx(10.0)
+        assert harness._cached_up_book.asks[0].size == pytest.approx(12.0)
         assert harness._cached_down_book is not None
         assert harness._cached_down_book.best_bid == pytest.approx(0.47)
         assert harness._cached_down_book.best_ask == pytest.approx(0.53)
+        assert harness._cached_down_book.bids[0].size == pytest.approx(9.0)
+        assert harness._cached_down_book.asks[0].size == pytest.approx(11.0)
     finally:
         harness._executor.shutdown(wait=False, cancel_futures=True)
 

@@ -185,8 +185,20 @@ def replay(
             btc_source=btc_source,
         )
 
-        up_top = BookTop(best_bid=tick.up_bid, best_ask=tick.up_ask, mid=tick.up_mid)
-        down_top = BookTop(best_bid=tick.down_bid, best_ask=tick.down_ask, mid=tick.down_mid)
+        up_top = BookTop(
+            best_bid=tick.up_bid,
+            best_ask=tick.up_ask,
+            mid=tick.up_mid,
+            best_bid_size=_row_float(row, "up_bid_size", math.inf),
+            best_ask_size=_row_float(row, "up_ask_size", math.inf),
+        )
+        down_top = BookTop(
+            best_bid=tick.down_bid,
+            best_ask=tick.down_ask,
+            mid=tick.down_mid,
+            best_bid_size=_row_float(row, "down_bid_size", math.inf),
+            best_ask_size=_row_float(row, "down_ask_size", math.inf),
+        )
         simulator.apply_signal(pending_signal, up_top, down_top)
         equity = simulator.mark_to_market(up_top, down_top, tick.ts)
         equity_curve.append(equity)
@@ -287,4 +299,15 @@ def replay(
         from polybench.harness import format_summary
         on_summary(format_summary(result))
 
+    return result
+
+
+def _row_float(row: Any, name: str, default: float) -> float:
+    value = getattr(row, name, default)
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(result):
+        return default
     return result

@@ -529,10 +529,14 @@ class Harness:
             btc_ask=price_snap.ask,
             btc_source=price_snap.source,
             up_bid=self._cached_up_book.best_bid if self._cached_up_book else 0.0,
+            up_bid_size=_book_best_bid_size(self._cached_up_book),
             up_ask=self._cached_up_book.best_ask if self._cached_up_book else 0.0,
+            up_ask_size=_book_best_ask_size(self._cached_up_book),
             up_mid=self._cached_up_book.mid if self._cached_up_book else 0.0,
             down_bid=self._cached_down_book.best_bid if self._cached_down_book else 0.0,
+            down_bid_size=_book_best_bid_size(self._cached_down_book),
             down_ask=self._cached_down_book.best_ask if self._cached_down_book else 0.0,
+            down_ask_size=_book_best_ask_size(self._cached_down_book),
             down_mid=self._cached_down_book.mid if self._cached_down_book else 0.0,
             signal_side="NONE",
             signal_size=0.0,
@@ -621,14 +625,8 @@ class Harness:
             event_id=self._current_event.event_id,
         )
 
-        up_top = BookTop(
-            best_bid=up_book.best_bid,
-            best_ask=up_book.best_ask,
-            mid=up_book.mid,
-        )
-        down_top = BookTop(
-            best_bid=down_book.best_bid, best_ask=down_book.best_ask, mid=down_book.mid
-        )
+        up_top = _book_top(up_book)
+        down_top = _book_top(down_book)
         fills = self._simulator.apply_signal(self._pending_signal, up_top, down_top)
         equity = self._simulator.mark_to_market(up_top, down_top, now)
         self._equity_curve.append(equity)
@@ -665,10 +663,14 @@ class Harness:
             btc_ask=tick.btc_ask,
             btc_source=tick.btc_source,
             up_bid=tick.up_bid,
+            up_bid_size=up_top.best_bid_size,
             up_ask=tick.up_ask,
+            up_ask_size=up_top.best_ask_size,
             up_mid=tick.up_mid,
             down_bid=tick.down_bid,
+            down_bid_size=down_top.best_bid_size,
             down_ask=tick.down_ask,
+            down_ask_size=down_top.best_ask_size,
             down_mid=tick.down_mid,
             signal_side=effective.side.value if effective.side else "NONE",
             signal_size=effective.size,
@@ -862,6 +864,18 @@ def _books_from_clob_ws_message(msg: dict[str, Any]) -> list[tuple[str, Book]]:
             token_id,
             best_bid=_float_or_zero(msg.get("best_bid")),
             best_ask=_float_or_zero(msg.get("best_ask")),
+            bid_size=_first_float_or_zero(
+                msg.get("best_bid_size"),
+                msg.get("bestBidSize"),
+                msg.get("bid_size"),
+                msg.get("bidSize"),
+            ),
+            ask_size=_first_float_or_zero(
+                msg.get("best_ask_size"),
+                msg.get("bestAskSize"),
+                msg.get("ask_size"),
+                msg.get("askSize"),
+            ),
             ts=ts,
         )
         return [(token_id, book)] if book is not None else []
@@ -875,6 +889,18 @@ def _books_from_clob_ws_message(msg: dict[str, Any]) -> list[tuple[str, Book]]:
                 token_id,
                 best_bid=_float_or_zero(change.get("best_bid")),
                 best_ask=_float_or_zero(change.get("best_ask")),
+                bid_size=_first_float_or_zero(
+                    change.get("best_bid_size"),
+                    change.get("bestBidSize"),
+                    change.get("bid_size"),
+                    change.get("bidSize"),
+                ),
+                ask_size=_first_float_or_zero(
+                    change.get("best_ask_size"),
+                    change.get("bestAskSize"),
+                    change.get("ask_size"),
+                    change.get("askSize"),
+                ),
                 ts=ts,
             )
             if book is not None:
@@ -884,7 +910,34 @@ def _books_from_clob_ws_message(msg: dict[str, Any]) -> list[tuple[str, Book]]:
 
 
 def _is_two_sided_book(book: Book) -> bool:
-    return book.best_bid > 0.0 and book.best_ask > 0.0
+    return (
+        book.best_bid > 0.0
+        and book.best_ask > 0.0
+        and _book_best_bid_size(book) > 0.0
+        and _book_best_ask_size(book) > 0.0
+    )
+
+
+def _book_top(book: Book) -> BookTop:
+    return BookTop(
+        best_bid=book.best_bid,
+        best_ask=book.best_ask,
+        mid=book.mid,
+        best_bid_size=_book_best_bid_size(book),
+        best_ask_size=_book_best_ask_size(book),
+    )
+
+
+def _book_best_bid_size(book: Book | None) -> float:
+    if book is None or not book.bids:
+        return 0.0
+    return book.bids[0].size
+
+
+def _book_best_ask_size(book: Book | None) -> float:
+    if book is None or not book.asks:
+        return 0.0
+    return book.asks[0].size
 
 
 def _book_from_levels(
@@ -943,14 +996,20 @@ def _book_from_levels(
 
 
 def _book_from_top(
-    token_id: str, *, best_bid: float, best_ask: float, ts: float
+    token_id: str,
+    *,
+    best_bid: float,
+    best_ask: float,
+    bid_size: float = 0.0,
+    ask_size: float = 0.0,
+    ts: float,
 ) -> Book | None:
     if not token_id:
         return None
     if best_bid <= 0.0 and best_ask <= 0.0:
         return None
-    bids = (Level(price=best_bid, size=0.0),) if best_bid > 0.0 else ()
-    asks = (Level(price=best_ask, size=0.0),) if best_ask > 0.0 else ()
+    bids = (Level(price=best_bid, size=bid_size),) if best_bid > 0.0 else ()
+    asks = (Level(price=best_ask, size=ask_size),) if best_ask > 0.0 else ()
     last_trade = (
         (best_bid + best_ask) / 2.0
         if best_bid > 0.0 and best_ask > 0.0
@@ -975,6 +1034,13 @@ def _float_or_zero(value: Any) -> float:
     if not math.isfinite(f):
         return 0.0
     return f
+
+
+def _first_float_or_zero(*values: Any) -> float:
+    for value in values:
+        if value is not None:
+            return _float_or_zero(value)
+    return 0.0
 
 
 def _ws_timestamp_to_seconds(value: Any) -> float:

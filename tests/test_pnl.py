@@ -176,6 +176,83 @@ def test_untradable_side_skips_buy() -> None:
     assert sim.position.up_shares == 0.0
 
 
+def test_buy_fill_is_capped_by_best_ask_size() -> None:
+    sim = PaperSimulator(starting_capital=1000.0, slippage_bps=0.0, fee_rate=0.0)
+    sim.start_event("E1", "ev1", ts=0.0, up_mid=0.01, down_mid=0.99)
+
+    fills = sim.apply_signal(
+        Signal(side=Side.UP, size=1.0),
+        BookTop(best_bid=0.009, best_ask=0.01, mid=0.0095, best_ask_size=25.0),
+        _book(0.98, 0.99),
+    )
+
+    assert len(fills) == 1
+    assert fills[0].shares_delta == pytest.approx(25.0, rel=1e-9)
+    assert fills[0].notional == pytest.approx(0.25, rel=1e-9)
+    assert sim.position.up_shares == pytest.approx(25.0, rel=1e-9)
+    assert sim.position.cash == pytest.approx(999.75, rel=1e-9)
+
+
+def test_sell_fill_is_capped_by_best_bid_size() -> None:
+    sim = PaperSimulator(starting_capital=1000.0, slippage_bps=0.0, fee_rate=0.0)
+    sim.start_event("E1", "ev1", ts=0.0, up_mid=0.5, down_mid=0.5)
+    sim.apply_signal(
+        Signal(side=Side.UP, size=1.0),
+        _book(0.49, 0.50),
+        _book(0.49, 0.50),
+    )
+
+    fills = sim.apply_signal(
+        Signal(side=Side.FLAT, size=0.0),
+        BookTop(best_bid=0.50, best_ask=0.51, mid=0.505, best_bid_size=30.0),
+        _book(0.49, 0.50),
+    )
+
+    assert len(fills) == 1
+    assert fills[0].shares_delta == pytest.approx(-30.0, rel=1e-9)
+    assert fills[0].notional == pytest.approx(-15.0, rel=1e-9)
+    assert sim.position.up_shares == pytest.approx(1970.0, rel=1e-9)
+
+
+def test_zero_size_level_is_not_executable() -> None:
+    sim = PaperSimulator(starting_capital=1000.0, slippage_bps=0.0, fee_rate=0.0)
+    sim.start_event("E1", "ev1", ts=0.0, up_mid=0.01, down_mid=0.99)
+
+    fills = sim.apply_signal(
+        Signal(side=Side.UP, size=1.0),
+        BookTop(best_bid=0.009, best_ask=0.01, mid=0.0095, best_ask_size=0.0),
+        _book(0.98, 0.99),
+    )
+
+    assert fills == []
+    assert sim.position.up_shares == 0.0
+
+
+def test_zero_ask_size_does_not_flatten_same_long_signal() -> None:
+    sim = PaperSimulator(starting_capital=1000.0, slippage_bps=0.0, fee_rate=0.0)
+    sim.start_event("E1", "ev1", ts=0.0, up_mid=0.5, down_mid=0.5)
+    sim.apply_signal(
+        Signal(side=Side.UP, size=1.0),
+        _book(0.49, 0.50),
+        _book(0.49, 0.50),
+    )
+
+    fills = sim.apply_signal(
+        Signal(side=Side.UP, size=1.0),
+        BookTop(
+            best_bid=0.49,
+            best_ask=0.50,
+            mid=0.495,
+            best_bid_size=30.0,
+            best_ask_size=0.0,
+        ),
+        _book(0.49, 0.50),
+    )
+
+    assert fills == []
+    assert sim.position.up_shares == pytest.approx(2000.0, rel=1e-9)
+
+
 def test_flat_signal_closes_existing_positions() -> None:
     sim = PaperSimulator(starting_capital=1000.0, slippage_bps=0.0, fee_rate=0.0)
     sim.start_event("E1", "ev1", ts=0.0, up_mid=0.5, down_mid=0.5)
